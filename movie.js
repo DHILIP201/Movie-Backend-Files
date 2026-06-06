@@ -45,7 +45,6 @@ app.get('/', (req, res) => {
 // ==========================================
 // AUTHENTICATION & USER PROFILE ROUTES
 // ==========================================
-// (Your Auth and Profile routes remain completely unchanged and perfect)
 
 app.post('/api/auth/register', async (req, res) => {
     const { username, email, password } = req.body;
@@ -138,7 +137,7 @@ app.get('/api/webseries', async (req, res) => {
 // Dynamic Route: Handles both Movies and TV Genres
 app.get('/api/genre/:type/:id', async (req, res) => {
     try {
-        const { type, id } = req.params; 
+        const { type, id } = req.params;
         const data = await fetchTMDB(`/discover/${type}?with_genres=${id}&sort_by=popularity.desc`);
         res.json(data);
     } catch (error) { res.status(502).json({ success: false, message: "Error fetching genre data" }); }
@@ -153,25 +152,61 @@ app.get('/api/search', async (req, res) => {
     } catch (error) { res.status(502).json({ success: false, message: "Error performing search" }); }
 });
 
-// PROTECTED: Master Details Route (Bundles Details, Similar, and Providers)
+// NEW SAFEFALL ROUTE: Dedicated endpoint specifically for cast/credits
+app.get('/api/cast/:type/:id', async (req, res) => {
+    try {
+        const { type, id } = req.params;
+        const data = await fetchTMDB(`/${type}/${id}/credits`);
+        res.json({ success: true, cast: data.cast || [] });
+    } catch (error) {
+        console.error("Backend Cast Fetch Error:", error);
+        res.status(500).json({ success: false, cast: [], message: "Server fetch failed" });
+    }
+});
+
+// PROTECTED: Master Details Route (Bundles Details, Similar, Providers, AND Cast)
 app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
     try {
         const { mediaType, id } = req.params;
-        
-        // Fetch all 3 pieces of data concurrently for maximum speed
+       
+        // Fetches all fields smoothly using standard template formats
         const [mainData, similarData, providerData] = await Promise.all([
-            fetchTMDB(`/${mediaType}/${id}?append_to_response=videos`),
+            fetchTMDB(`/${mediaType}/${id}?append_to_response=videos,credits`),
             fetchTMDB(`/${mediaType}/${id}/similar`),
             fetchTMDB(`/${mediaType}/${id}/watch/providers`)
         ]);
 
+        // Explicit structural guarantee to pass cast both wrapped inside credits and as a root parameter to fully align with frontend fallback attempts
+        let castArray = [];
+        if (mainData && mainData.credits && mainData.credits.cast) {
+            castArray = mainData.credits.cast;
+        } else {
+            // Internal network level recovery fallback
+            try {
+                const embeddedCredits = await fetchTMDB(`/${mediaType}/${id}/credits`);
+                if (embeddedCredits && embeddedCredits.cast) {
+                    castArray = embeddedCredits.cast;
+                }
+            } catch (innerErr) {
+                console.log("Internal recovery skipped:", innerErr);
+            }
+        }
+
+        // Apply clean data attachment block directly to the payload objects
+        if (!mainData.credits) {
+            mainData.credits = {};
+        }
+        mainData.credits.cast = castArray;
+
         res.json({
             success: true,
             item: mainData,
+            cast: castArray, // Added explicitly at root level for immediate script destructuring matching
             similar: similarData.results || [],
             providers: providerData.results || {}
         });
     } catch (error) {
+        console.error("Master Details Error:", error);
         res.status(502).json({ success: false, message: "Error fetching media details" });
     }
 });
