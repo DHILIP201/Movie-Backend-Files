@@ -19,37 +19,29 @@ const JWT_SECRET = process.env.JWT_SECRET || 'movie_secret_key';
 app.use(cors());
 app.use(express.json());
 
-// MongoDB Connection
+// MongoDB Connection Block
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('🍃 Connected to MongoDB Atlas successfully!'))
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
-// --- EMAIL TRANSPORTER SETUP ---
-// Using Google's required TLS port (587)
+// ==========================================
+// BULLETPROOF GMAIL EMAIL TRANSPORTER
+// ==========================================
 const transporter = nodemailer.createTransport({
+    service: 'gmail',
     host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // true for 465, false for other ports
-    requireTLS: true,
+    port: 465,
+    secure: true, // Forces absolute SSL connection required by Google App Passwords
     auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
-});
-
-// Immediately test the email connection on startup!
-transporter.verify((error, success) => {
-    if (error) {
-        console.error("⚠️ Nodemailer Verification Error:", error);
-    } else {
-        console.log("📧 ✅ Email Server is connected and ready to send!");
+        user: process.env.EMAIL_USER ? process.env.EMAIL_USER.trim() : '', // The .trim() removes accidental blank spaces!
+        pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.trim() : ''
     }
 });
 
 // Temporary memory store for OTPs
 const otpStore = {};
 
-// Helper Function
+// Bulletproof Fetch Helper Function
 const fetchTMDB = async (endpoint) => {
     const separator = endpoint.includes('?') ? '&' : '?';
     const url = `https://api.themoviedb.org/3${endpoint}${separator}api_key=${TMDB_API_KEY}`;
@@ -109,30 +101,40 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// --- FORGOT PASSWORD: SEND OTP ---
+// --- FORGOT PASSWORD: SEND OTP ROUTE ---
 app.post('/api/auth/forgot-password', async (req, res) => {
     const { email } = req.body;
+    console.log(`\n\n[🚀 OTP TRIGGERED] User requested code for: ${email}`);
+    
     try {
         const user = await User.findOne({ email });
-        if (!user) return res.status(404).json({ success: false, message: "No account found with this email." });
+        if (!user) {
+            console.log(`[❌ OTP FAILED] No account found for email: ${email}`);
+            return res.status(404).json({ success: false, message: "No account found with this email." });
+        }
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        otpStore[email] = { otp, expires: Date.now() + 600000 };
+        otpStore[email] = { otp, expires: Date.now() + 600000 }; // 10 minutes
 
+        console.log(`[⏳ SENDING EMAIL] Attempting to contact Gmail SMTP...`);
+        
         await transporter.sendMail({
-            from: process.env.EMAIL_USER,
+            from: `"Nexus Movies Support" <${process.env.EMAIL_USER}>`,
             to: email,
             subject: 'Nexus Movies - Account Recovery Code',
             text: `Hello ${user.username},\n\nYour 6-digit account recovery code is: ${otp}\n\nThis code will expire in 10 minutes. If you did not request this, please ignore this email.`
         });
+        
+        console.log(`[✅ EMAIL SENT SUCCESS] The 6-digit code (${otp}) was successfully handed over to Gmail! Check your inbox/spam folder.`);
         res.json({ success: true, message: "OTP sent to email." });
+        
     } catch (err) {
-        console.error("OTP Error:", err);
-        res.status(500).json({ success: false, message: "Failed to send email." });
+        console.error(`\n[🚨 MASSIVE EMAIL ERROR] Gmail rejected the connection. Check your App Password! Error details:`, err);
+        res.status(500).json({ success: false, message: "Failed to send email. Server rejected the connection." });
     }
 });
 
-// --- VERIFY OTP & RESET PASSWORD ---
+// --- VERIFY OTP & RESET PASSWORD ROUTE ---
 app.post('/api/auth/reset-password', async (req, res) => {
     const { email, otp, newPassword } = req.body;
     const record = otpStore[email];
@@ -191,18 +193,23 @@ app.put('/api/user/profile', auth, async (req, res) => {
 // ==========================================
 // UTILITY ROUTES (CONTACT)
 // ==========================================
+
+// --- REAL CONTACT SUPPORT ROUTE ---
 app.post('/api/contact', async (req, res) => {
     const { name, email, message } = req.body;
+    console.log(`\n\n[🚀 CONTACT TRIGGERED] Ticket from: ${name} (${email})`);
+
     try {
         await transporter.sendMail({
-            from: process.env.EMAIL_USER,
+            from: `"Nexus Movies Support" <${process.env.EMAIL_USER}>`,
             to: process.env.EMAIL_USER, 
             subject: `Nexus Movies Support Ticket from: ${name}`,
             text: `Name: ${name}\nUser Email: ${email}\n\nMessage:\n${message}`
         });
+        console.log(`[✅ CONTACT SUCCESS] Support email successfully sent to your inbox!`);
         res.json({ success: true });
     } catch (err) {
-        console.error("Email Error:", err);
+        console.error("\n[🚨 CONTACT EMAIL ERROR] Could not send contact email:", err);
         res.status(500).json({ success: false });
     }
 });
@@ -210,6 +217,7 @@ app.post('/api/contact', async (req, res) => {
 // ==========================================
 // MEDIA ROUTES (PROXY TO SECURE API KEY)
 // ==========================================
+
 app.get('/api/trending', async (req, res) => {
     try {
         const data = await fetchTMDB('/trending/all/day?language=en-US');
@@ -293,9 +301,10 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
 // 24/7 KEEP-ALIVE PINGER
 // ==========================================
 setInterval(() => {
+    // Replace this URL with your actual Render backend URL once deployed
     https.get('https://movie-backend-files.onrender.com'); 
     console.log("Pinged server to keep it awake!");
-}, 600000); 
+}, 600000); // 10 minutes
 
 app.listen(PORT, () => {
     console.log(`🚀 Secure Server spinning safely on port http://localhost:${PORT}`);
