@@ -27,13 +27,14 @@ mongoose.connect(process.env.MONGO_URI)
 // --- EMAIL TRANSPORTER SETUP ---
 // Requires EMAIL_USER and EMAIL_PASS environment variables in Render
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // Forces a secure SSL connection
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
     }
 });
-
 // Temporary memory store for OTPs
 const otpStore = {};
 
