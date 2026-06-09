@@ -3,6 +3,8 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
+const https = require('https');
 require('dotenv').config();
 
 // Import Models & Middleware
@@ -21,6 +23,19 @@ app.use(express.json());
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('🍃 Connected to MongoDB Atlas successfully!'))
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
+
+// --- EMAIL TRANSPORTER SETUP ---
+// Requires EMAIL_USER and EMAIL_PASS environment variables in Render
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
+
+// Temporary memory store for OTPs
+const otpStore = {};
 
 // Bulletproof Fetch Helper Function
 const fetchTMDB = async (endpoint) => {
@@ -56,7 +71,7 @@ app.post('/api/auth/register', async (req, res) => {
         user.password = await bcrypt.hash(password, salt);
         await user.save();
         const payload = { user: { id: user.id } };
-        jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' }, (err, token) => {
+        jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
             if (err) throw err;
             res.json({ success: true, token, username: user.username });
         });
@@ -73,12 +88,58 @@ app.post('/api/auth/login', async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ success: false, message: 'Invalid Credentials' });
         const payload = { user: { id: user.id } };
-        jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' }, (err, token) => {
+        jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
             if (err) throw err;
             res.json({ success: true, token, username: user.username });
         });
     } catch (err) {
         res.status(500).send('Server error during login');
+    }
+});
+
+// --- FORGOT PASSWORD: SEND OTP ROUTE ---
+app.post('/api/auth/forgot-password', async (req, res) => {
+    const { email } = req.body;
+    
+    try {
+        const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ success: false, message: "No account found with this email." });
+
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        otpStore[email] = { otp, expires: Date.now() + 600000 }; // 10 minutes
+
+        await transporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: email,
+            subject: 'Nexus Movies - Account Recovery Code',
+            text: `Hello ${user.username},\n\nYour 6-digit account recovery code is: ${otp}\n\nThis code will expire in 10 minutes. If you did not request this, please ignore this email.`
+        });
+        res.json({ success: true, message: "OTP sent to email." });
+    } catch (err) {
+        console.error("OTP Error:", err);
+        res.status(500).json({ success: false, message: "Failed to send email." });
+    }
+});
+
+// --- VERIFY OTP & RESET PASSWORD ROUTE ---
+app.post('/api/auth/reset-password', async (req, res) => {
+    const { email, otp, newPassword } = req.body;
+    const record = otpStore[email];
+
+    if (!record || record.otp !== otp || Date.now() > record.expires) {
+        return res.status(400).json({ success: false, message: "Invalid or expired verification code." });
+    }
+
+    try {
+        const user = await User.findOne({ email });
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(newPassword, salt);
+        await user.save();
+        
+        delete otpStore[email]; 
+        res.json({ success: true, message: "Password reset securely!" });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Server error resetting password." });
     }
 });
 
@@ -117,6 +178,27 @@ app.put('/api/user/profile', auth, async (req, res) => {
 });
 
 // ==========================================
+// UTILITY ROUTES (CONTACT & REVIEWS)
+// ==========================================
+
+// --- REAL CONTACT SUPPORT ROUTE ---
+app.post('/api/contact', async (req, res) => {
+    const { name, email, message } = req.body;
+    try {
+        await transporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: process.env.EMAIL_USER, // Sends the ticket to your own email
+            subject: `Nexus Movies Support Ticket from: ${name}`,
+            text: `Name: ${name}\nUser Email: ${email}\n\nMessage:\n${message}`
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error("Email Error:", err);
+        res.status(500).json({ success: false });
+    }
+});
+
+// ==========================================
 // MEDIA ROUTES (PROXY TO SECURE API KEY)
 // ==========================================
 
@@ -134,7 +216,6 @@ app.get('/api/webseries', async (req, res) => {
     } catch (error) { res.status(502).json({ success: false, message: "TMDB error" }); }
 });
 
-// Dynamic Route: Handles both Movies and TV Genres
 app.get('/api/genre/:type/:id', async (req, res) => {
     try {
         const { type, id } = req.params;
@@ -152,7 +233,6 @@ app.get('/api/search', async (req, res) => {
     } catch (error) { res.status(502).json({ success: false, message: "Error performing search" }); }
 });
 
-// NEW SAFEFALL ROUTE: Dedicated endpoint specifically for cast/credits
 app.get('/api/cast/:type/:id', async (req, res) => {
     try {
         const { type, id } = req.params;
@@ -164,24 +244,20 @@ app.get('/api/cast/:type/:id', async (req, res) => {
     }
 });
 
-// PROTECTED: Master Details Route (Bundles Details, Similar, Providers, AND Cast)
 app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
     try {
         const { mediaType, id } = req.params;
-       
-        // Fetches all fields smoothly using standard template formats
+        
         const [mainData, similarData, providerData] = await Promise.all([
             fetchTMDB(`/${mediaType}/${id}?append_to_response=videos,credits`),
             fetchTMDB(`/${mediaType}/${id}/similar`),
             fetchTMDB(`/${mediaType}/${id}/watch/providers`)
         ]);
 
-        // Explicit structural guarantee to pass cast both wrapped inside credits and as a root parameter to fully align with frontend fallback attempts
         let castArray = [];
         if (mainData && mainData.credits && mainData.credits.cast) {
             castArray = mainData.credits.cast;
         } else {
-            // Internal network level recovery fallback
             try {
                 const embeddedCredits = await fetchTMDB(`/${mediaType}/${id}/credits`);
                 if (embeddedCredits && embeddedCredits.cast) {
@@ -192,7 +268,6 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
             }
         }
 
-        // Apply clean data attachment block directly to the payload objects
         if (!mainData.credits) {
             mainData.credits = {};
         }
@@ -201,7 +276,7 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
         res.json({
             success: true,
             item: mainData,
-            cast: castArray, // Added explicitly at root level for immediate script destructuring matching
+            cast: castArray, 
             similar: similarData.results || [],
             providers: providerData.results || {}
         });
@@ -210,6 +285,16 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
         res.status(502).json({ success: false, message: "Error fetching media details" });
     }
 });
+
+// ==========================================
+// 24/7 KEEP-ALIVE PINGER
+// ==========================================
+// Prevents Render from putting the server to sleep
+setInterval(() => {
+    // Replace this URL with your actual Render backend URL once deployed
+    https.get('https://movie-backend-files.onrender.com'); 
+    console.log("Pinged server to keep it awake!");
+}, 600000); // 10 minutes
 
 app.listen(PORT, () => {
     console.log(`🚀 Secure Server spinning safely on port http://localhost:${PORT}`);
