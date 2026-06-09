@@ -19,25 +19,25 @@ const JWT_SECRET = process.env.JWT_SECRET || 'movie_secret_key';
 app.use(cors());
 app.use(express.json());
 
-// MongoDB Connection Block
+// MongoDB Connection
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('🍃 Connected to MongoDB Atlas successfully!'))
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
 // --- EMAIL TRANSPORTER SETUP ---
-// Requires EMAIL_USER and EMAIL_PASS environment variables in Render
+// Using Google's required TLS port (587)
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 587,
-    secure: false, // False for Port 587
-    requireTLS: true, // Forces secure TLS connection
+    secure: false, // true for 465, false for other ports
+    requireTLS: true,
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
     }
 });
 
-// Test the connection the second the server starts
+// Immediately test the email connection on startup!
 transporter.verify((error, success) => {
     if (error) {
         console.error("⚠️ Nodemailer Verification Error:", error);
@@ -45,10 +45,11 @@ transporter.verify((error, success) => {
         console.log("📧 ✅ Email Server is connected and ready to send!");
     }
 });
+
 // Temporary memory store for OTPs
 const otpStore = {};
 
-// Bulletproof Fetch Helper Function
+// Helper Function
 const fetchTMDB = async (endpoint) => {
     const separator = endpoint.includes('?') ? '&' : '?';
     const url = `https://api.themoviedb.org/3${endpoint}${separator}api_key=${TMDB_API_KEY}`;
@@ -108,16 +109,15 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// --- FORGOT PASSWORD: SEND OTP ROUTE ---
+// --- FORGOT PASSWORD: SEND OTP ---
 app.post('/api/auth/forgot-password', async (req, res) => {
     const { email } = req.body;
-    
     try {
         const user = await User.findOne({ email });
         if (!user) return res.status(404).json({ success: false, message: "No account found with this email." });
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        otpStore[email] = { otp, expires: Date.now() + 600000 }; // 10 minutes
+        otpStore[email] = { otp, expires: Date.now() + 600000 };
 
         await transporter.sendMail({
             from: process.env.EMAIL_USER,
@@ -132,7 +132,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     }
 });
 
-// --- VERIFY OTP & RESET PASSWORD ROUTE ---
+// --- VERIFY OTP & RESET PASSWORD ---
 app.post('/api/auth/reset-password', async (req, res) => {
     const { email, otp, newPassword } = req.body;
     const record = otpStore[email];
@@ -189,16 +189,14 @@ app.put('/api/user/profile', auth, async (req, res) => {
 });
 
 // ==========================================
-// UTILITY ROUTES (CONTACT & REVIEWS)
+// UTILITY ROUTES (CONTACT)
 // ==========================================
-
-// --- REAL CONTACT SUPPORT ROUTE ---
 app.post('/api/contact', async (req, res) => {
     const { name, email, message } = req.body;
     try {
         await transporter.sendMail({
             from: process.env.EMAIL_USER,
-            to: process.env.EMAIL_USER, // Sends the ticket to your own email
+            to: process.env.EMAIL_USER, 
             subject: `Nexus Movies Support Ticket from: ${name}`,
             text: `Name: ${name}\nUser Email: ${email}\n\nMessage:\n${message}`
         });
@@ -212,7 +210,6 @@ app.post('/api/contact', async (req, res) => {
 // ==========================================
 // MEDIA ROUTES (PROXY TO SECURE API KEY)
 // ==========================================
-
 app.get('/api/trending', async (req, res) => {
     try {
         const data = await fetchTMDB('/trending/all/day?language=en-US');
@@ -258,7 +255,6 @@ app.get('/api/cast/:type/:id', async (req, res) => {
 app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
     try {
         const { mediaType, id } = req.params;
-        
         const [mainData, similarData, providerData] = await Promise.all([
             fetchTMDB(`/${mediaType}/${id}?append_to_response=videos,credits`),
             fetchTMDB(`/${mediaType}/${id}/similar`),
@@ -271,17 +267,13 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
         } else {
             try {
                 const embeddedCredits = await fetchTMDB(`/${mediaType}/${id}/credits`);
-                if (embeddedCredits && embeddedCredits.cast) {
-                    castArray = embeddedCredits.cast;
-                }
+                if (embeddedCredits && embeddedCredits.cast) castArray = embeddedCredits.cast;
             } catch (innerErr) {
                 console.log("Internal recovery skipped:", innerErr);
             }
         }
 
-        if (!mainData.credits) {
-            mainData.credits = {};
-        }
+        if (!mainData.credits) mainData.credits = {};
         mainData.credits.cast = castArray;
 
         res.json({
@@ -300,12 +292,10 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
 // ==========================================
 // 24/7 KEEP-ALIVE PINGER
 // ==========================================
-// Prevents Render from putting the server to sleep
 setInterval(() => {
-    // Replace this URL with your actual Render backend URL once deployed
     https.get('https://movie-backend-files.onrender.com'); 
     console.log("Pinged server to keep it awake!");
-}, 600000); // 10 minutes
+}, 600000); 
 
 app.listen(PORT, () => {
     console.log(`🚀 Secure Server spinning safely on port http://localhost:${PORT}`);
