@@ -28,11 +28,21 @@ mongoose.connect(process.env.MONGO_URI)
 // Requires EMAIL_USER and EMAIL_PASS environment variables in Render
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // Forces a secure SSL connection
+    port: 587,
+    secure: false, // False for Port 587
+    requireTLS: true, // Forces secure TLS connection
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
+    }
+});
+
+// Test the connection the second the server starts
+transporter.verify((error, success) => {
+    if (error) {
+        console.error("⚠️ Nodemailer Verification Error:", error);
+    } else {
+        console.log("📧 ✅ Email Server is connected and ready to send!");
     }
 });
 // Temporary memory store for OTPs
