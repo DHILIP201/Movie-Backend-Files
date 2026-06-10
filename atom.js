@@ -27,16 +27,30 @@ mongoose.connect(process.env.MONGO_URI)
 // ==========================================
 // BULLETPROOF GMAIL EMAIL TRANSPORTER
 // ==========================================
-const transporter = nodemailer.createTransport({
-    host: 'smtp-relay.brevo.com',
-    port: 587,
-    secure: false, // true for 465, false for other ports
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS // This is your xsmtpsib-... key
-    }
-});
+// Ensure you use your actual variables for the user's email and OTP
+const sendEmailData = {
+    sender: { name: "Nexus Movies", email: process.env.EMAIL_USER },
+    to: [{ email: "USER_EMAIL_VARIABLE_HERE" }], // Replace with your variable, e.g., req.body.email
+    subject: "Your OTP Code", 
+    htmlContent: `<p>Your code is: OTP_VARIABLE_HERE</p>` // Replace with your OTP variable
+};
 
+try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+            "accept": "application/json",
+            "api-key": process.env.EMAIL_PASS, // Pulls the API key from Render
+            "content-type": "application/json"
+        },
+        body: JSON.stringify(sendEmailData)
+    });
+    
+    const result = await response.json();
+    console.log("✅ Email sent successfully via API:", result);
+} catch (error) {
+    console.error("❌ Email API Error:", error);
+}
 // Temporary memory store for OTPs
 const otpStore = {};
 
