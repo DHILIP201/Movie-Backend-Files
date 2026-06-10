@@ -69,6 +69,63 @@ app.get('/', (req, res) => {
 // AUTHENTICATION & USER PROFILE ROUTES
 // ==========================================
 
+// --- NEW: SECURE GOOGLE SINGLE SIGN-ON ENDPOINT ---
+app.post('/api/auth/google', async (req, res) => {
+    const { token } = req.body;
+    
+    if (!token) {
+        return res.status(400).json({ success: false, message: "Google token missing" });
+    }
+
+    try {
+        // Verify token with Google API
+        const googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
+        const googleUser = await googleRes.json();
+
+        if (!googleRes.ok || googleUser.error_description) {
+            return res.status(400).json({ success: false, message: "Invalid Google Token" });
+        }
+
+        // Verify that the token matches your Client ID
+        if (googleUser.aud !== process.env.GOOGLE_CLIENT_ID) {
+            return res.status(403).json({ success: false, message: "Client ID Mismatch Security Alert" });
+        }
+
+        const { email, name, picture } = googleUser;
+
+        // Check if user exists in database, or create them
+        let user = await User.findOne({ email });
+        if (!user) {
+            // Generate random password placeholder for social users
+            const generatedPassword = Math.random().toString(36).slice(-10);
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(generatedPassword, salt);
+
+            // Strip spaces to make a clean username
+            const uniqueUsername = name.replace(/\s+/g, '').toLowerCase() + Math.floor(1000 + Math.random() * 9000);
+
+            user = new User({
+                username: uniqueUsername,
+                email: email,
+                password: hashedPassword,
+                profilePhoto: picture || ''
+            });
+            await user.save();
+        }
+
+        // Issue JWT payload
+        const payload = { user: { id: user.id } };
+        jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, jwtToken) => {
+            if (err) throw err;
+            res.json({ success: true, token: jwtToken, username: user.username });
+        });
+
+    } catch (error) {
+        console.error("Google Auth Backend Error:", error);
+        res.status(500).json({ success: false, message: "Server error during Google verification" });
+    }
+});
+
 app.post('/api/auth/register', async (req, res) => {
     const { username, email, password } = req.body;
     try {
@@ -225,7 +282,7 @@ app.post('/api/contact', async (req, res) => {
     try {
         const sendContactData = {
             sender: { name: "Nexus Movies System", email: process.env.EMAIL_USER },
-            to: [{ email: process.env.EMAIL_USER }], // Sends support ticket to your admin email
+            to: [{ email: process.env.EMAIL_USER }], 
             subject: `Nexus Movies Support Ticket from: ${name}`,
             htmlContent: `
                 <p><strong>Name:</strong> ${name}</p>
@@ -260,7 +317,7 @@ app.post('/api/contact', async (req, res) => {
 });
 
 // ==========================================
-// GLOBAL REVIEW ROUTE (NEW)
+// GLOBAL REVIEW ROUTE
 // ==========================================
 app.post('/api/review', auth, async (req, res) => {
     try {
@@ -354,7 +411,6 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
         if (!mainData.credits) mainData.credits = {};
         mainData.credits.cast = castArray;
 
-        // 🔥 NEW: Fetch global reviews from MongoDB and attach them to the movie data!
         const globalReviews = await Review.find({ movieId: id.toString(), mediaType }).sort({ date: -1 });
         mainData.reviews = globalReviews;
 
@@ -377,7 +433,7 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
 setInterval(() => {
     https.get('https://movie-backend-files.onrender.com'); 
     console.log("Pinged server to keep it awake!");
-}, 600000); // 10 minutes
+}, 600000); 
 
 app.listen(PORT, () => {
     console.log(`🚀 Secure Server spinning safely on port http://localhost:${PORT}`);
