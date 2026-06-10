@@ -10,6 +10,21 @@ require('dotenv').config();
 const User = require('./models/Temp');
 const auth = require('./middleware/auth');
 
+// ==========================================
+// NEW: DATABASE MODEL FOR GLOBAL REVIEWS
+// ==========================================
+const reviewSchema = new mongoose.Schema({
+    movieId: { type: String, required: true },
+    mediaType: { type: String, required: true },
+    username: { type: String, required: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    rating: { type: Number, required: true },
+    content: { type: String, required: true },
+    date: { type: Date, default: Date.now }
+});
+const Review = mongoose.model('Review', reviewSchema);
+// ==========================================
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
@@ -241,6 +256,31 @@ app.post('/api/contact', async (req, res) => {
 });
 
 // ==========================================
+// GLOBAL REVIEW ROUTE (NEW)
+// ==========================================
+app.post('/api/review', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        const newReview = new Review({
+            movieId: req.body.movieId.toString(),
+            mediaType: req.body.mediaType,
+            username: user.username,
+            userId: req.user.id,
+            rating: req.body.rating,
+            content: req.body.content
+        });
+
+        await newReview.save();
+        res.json({ success: true, review: newReview });
+    } catch (err) {
+        console.error("Review save error:", err);
+        res.status(500).json({ success: false, message: "Server error saving review" });
+    }
+});
+
+// ==========================================
 // MEDIA ROUTES (PROXY TO SECURE API KEY)
 // ==========================================
 
@@ -309,6 +349,10 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
 
         if (!mainData.credits) mainData.credits = {};
         mainData.credits.cast = castArray;
+
+        // 🔥 NEW: Fetch global reviews from MongoDB and attach them to the movie data!
+        const globalReviews = await Review.find({ movieId: id.toString(), mediaType }).sort({ date: -1 });
+        mainData.reviews = globalReviews;
 
         res.json({
             success: true,
