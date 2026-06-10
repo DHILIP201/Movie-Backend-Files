@@ -3,7 +3,6 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
 const https = require('https');
 require('dotenv').config();
 
@@ -24,37 +23,10 @@ mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('🍃 Connected to MongoDB Atlas successfully!'))
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
-// ==========================================
-// BULLETPROOF GMAIL EMAIL TRANSPORTER
-// ==========================================
-// Ensure you use your actual variables for the user's email and OTP
-const sendEmailData = {
-    sender: { name: "Nexus Movies", email: process.env.EMAIL_USER },
-    to: [{ email: "USER_EMAIL_VARIABLE_HERE" }], // Replace with your variable, e.g., req.body.email
-    subject: "Your OTP Code", 
-    htmlContent: `<p>Your code is: OTP_VARIABLE_HERE</p>` // Replace with your OTP variable
-};
-
-try {
-    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-        method: "POST",
-        headers: {
-            "accept": "application/json",
-            "api-key": process.env.EMAIL_PASS, // Pulls the API key from Render
-            "content-type": "application/json"
-        },
-        body: JSON.stringify(sendEmailData)
-    });
-    
-    const result = await response.json();
-    console.log("✅ Email sent successfully via API:", result);
-} catch (error) {
-    console.error("❌ Email API Error:", error);
-}
 // Temporary memory store for OTPs
 const otpStore = {};
 
-// Bulletproof Fetch Helper Function
+// Bulletproof Fetch Helper Function for TMDB
 const fetchTMDB = async (endpoint) => {
     const separator = endpoint.includes('?') ? '&' : '?';
     const url = `https://api.themoviedb.org/3${endpoint}${separator}api_key=${TMDB_API_KEY}`;
@@ -114,7 +86,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// --- FORGOT PASSWORD: SEND OTP ROUTE ---
+// --- FORGOT PASSWORD: SEND OTP ROUTE (BYPASSES BLOCKED SMTP PORTS) ---
 app.post('/api/auth/forgot-password', async (req, res) => {
     const { email } = req.body;
     console.log(`\n\n[🚀 OTP TRIGGERED] User requested code for: ${email}`);
@@ -129,21 +101,41 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         otpStore[email] = { otp, expires: Date.now() + 600000 }; // 10 minutes
 
-        console.log(`[⏳ SENDING EMAIL] Attempting to contact Gmail SMTP...`);
+        console.log(`[⏳ SENDING EMAIL] Dispatching API request to Brevo HTTP Endpoint...`);
         
-        await transporter.sendMail({
-            from: `"Nexus Movies Support" <${process.env.EMAIL_USER}>`,
-            to: email,
+        const sendEmailData = {
+            sender: { name: "Nexus Movies Support", email: process.env.EMAIL_USER },
+            to: [{ email: email }],
             subject: 'Nexus Movies - Account Recovery Code',
-            text: `Hello ${user.username},\n\nYour 6-digit account recovery code is: ${otp}\n\nThis code will expire in 10 minutes. If you did not request this, please ignore this email.`
+            htmlContent: `
+                <p>Hello ${user.username},</p>
+                <p>Your 6-digit account recovery code is: <strong>${otp}</strong></p>
+                <p>This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
+            `
+        };
+
+        const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+            method: "POST",
+            headers: {
+                "accept": "application/json",
+                "api-key": process.env.EMAIL_PASS, // Your Brevo API Key
+                "content-type": "application/json"
+            },
+            body: JSON.stringify(sendEmailData)
         });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(JSON.stringify(result));
+        }
         
-        console.log(`[✅ EMAIL SENT SUCCESS] The 6-digit code (${otp}) was successfully handed over to Gmail! Check your inbox/spam folder.`);
+        console.log(`[✅ EMAIL SENT SUCCESS] The 6-digit code (${otp}) was successfully processed by Brevo HTTP API!`);
         res.json({ success: true, message: "OTP sent to email." });
         
     } catch (err) {
-        console.error(`\n[🚨 MASSIVE EMAIL ERROR] Gmail rejected the connection. Check your App Password! Error details:`, err);
-        res.status(500).json({ success: false, message: "Failed to send email. Server rejected the connection." });
+        console.error(`\n[🚨 MASSIVE EMAIL ERROR] Brevo API connection failed:`, err);
+        res.status(500).json({ success: false, message: "Failed to send email via API gateway." });
     }
 });
 
@@ -204,25 +196,46 @@ app.put('/api/user/profile', auth, async (req, res) => {
 });
 
 // ==========================================
-// UTILITY ROUTES (CONTACT)
+// UTILITY ROUTES (CONTACT VIA BREVO HTTP API)
 // ==========================================
 
-// --- REAL CONTACT SUPPORT ROUTE ---
 app.post('/api/contact', async (req, res) => {
     const { name, email, message } = req.body;
     console.log(`\n\n[🚀 CONTACT TRIGGERED] Ticket from: ${name} (${email})`);
 
     try {
-        await transporter.sendMail({
-            from: `"Nexus Movies Support" <${process.env.EMAIL_USER}>`,
-            to: process.env.EMAIL_USER, 
+        const sendContactData = {
+            sender: { name: "Nexus Movies System", email: process.env.EMAIL_USER },
+            to: [{ email: process.env.EMAIL_USER }], // Sends support ticket to your admin email
             subject: `Nexus Movies Support Ticket from: ${name}`,
-            text: `Name: ${name}\nUser Email: ${email}\n\nMessage:\n${message}`
+            htmlContent: `
+                <p><strong>Name:</strong> ${name}</p>
+                <p><strong>User Email:</strong> ${email}</p>
+                <p><strong>Message:</strong></p>
+                <p>${message}</p>
+            `
+        };
+
+        const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+            method: "POST",
+            headers: {
+                "accept": "application/json",
+                "api-key": process.env.EMAIL_PASS,
+                "content-type": "application/json"
+            },
+            body: JSON.stringify(sendContactData)
         });
-        console.log(`[✅ CONTACT SUCCESS] Support email successfully sent to your inbox!`);
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(JSON.stringify(result));
+        }
+
+        console.log(`[✅ CONTACT SUCCESS] Support email successfully processed by Brevo API!`);
         res.json({ success: true });
     } catch (err) {
-        console.error("\n[🚨 CONTACT EMAIL ERROR] Could not send contact email:", err);
+        console.error("\n[🚨 CONTACT EMAIL ERROR] Could not route contact email via HTTP API:", err);
         res.status(500).json({ success: false });
     }
 });
@@ -314,7 +327,6 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
 // 24/7 KEEP-ALIVE PINGER
 // ==========================================
 setInterval(() => {
-    // Replace this URL with your actual Render backend URL once deployed
     https.get('https://movie-backend-files.onrender.com'); 
     console.log("Pinged server to keep it awake!");
 }, 600000); // 10 minutes
