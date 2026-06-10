@@ -28,13 +28,12 @@ mongoose.connect(process.env.MONGO_URI)
 // BULLETPROOF GMAIL EMAIL TRANSPORTER
 // ==========================================
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // Forces absolute SSL connection required by Google App Passwords
+    host: 'smtp-relay.brevo.com',
+    port: 587,
+    secure: false, // true for 465, false for other ports
     auth: {
-        user: process.env.EMAIL_USER ? process.env.EMAIL_USER.trim() : '', // The .trim() removes accidental blank spaces!
-        pass: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.trim() : ''
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS // This is your xsmtpsib-... key
     }
 });
 
