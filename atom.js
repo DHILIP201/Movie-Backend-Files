@@ -230,7 +230,6 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 });
 
-// --- UPDATED TO USE NATIVE MONGODB COLLECTION BINDING ---
 app.get('/api/user/:username', async (req, res) => {
     try {
         const user = await mongoose.connection.db.collection(User.collection.name).findOne({ username: req.params.username });
@@ -254,7 +253,6 @@ app.get('/api/user/:username', async (req, res) => {
     }
 });
 
-// --- UPDATED TO USE NATIVE MONGODB COLLECTION BINDING ---
 app.put('/api/user/profile', auth, async (req, res) => {
     try {
         const { bio, profilePhoto, favoriteGenres } = req.body;
@@ -460,3 +458,4 @@ setInterval(() => {
 app.listen(PORT, () => {
     console.log(`🚀 Secure Server spinning safely on port http://localhost:${PORT}`);
 });
+// --- END OF FILE ---
