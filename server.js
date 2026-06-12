@@ -117,7 +117,7 @@ app.post('/api/auth/google', async (req, res) => {
         const payload = { user: { id: user.id } };
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, jwtToken) => {
             if (err) throw err;
-            res.json({ success: true, token: jwtToken, username: user.username });
+            res.json({ success: true, token: jwtToken, username: user.username, profilePhoto: user.profilePhoto });
         });
 
     } catch (error) {
@@ -367,13 +367,42 @@ app.get('/api/genre/:type/:id', async (req, res) => {
     } catch (error) { res.status(502).json({ success: false, message: "Error fetching genre data" }); }
 });
 
+// ==========================================
+// UPGRADED MULTI-SEARCH: TMDB MOVIES + MONGODB REVIEWS
+// ==========================================
 app.get('/api/search', async (req, res) => {
     try {
         const searchQuery = req.query.query;
-        if (!searchQuery) return res.json({ results: [] });
-        const data = await fetchTMDB(`/search/multi?query=${encodeURIComponent(searchQuery)}&language=en-US`);
-        res.json(data);
-    } catch (error) { res.status(502).json({ success: false, message: "Error performing search" }); }
+        if (!searchQuery) return res.json({ movies: [], reviews: [] });
+
+        // 1. Search TMDB for Movies / TV Series
+        let tmdbData = { results: [] };
+        try {
+            tmdbData = await fetchTMDB(`/search/multi?query=${encodeURIComponent(searchQuery)}&language=en-US`);
+        } catch (tmdbErr) {
+            console.error("TMDB Search failed, continuing to database search...", tmdbErr);
+        }
+
+        // 2. Search MongoDB Reviews for matching text
+        const reviewMatches = await Review.find({
+            $or: [
+                { content: { $regex: searchQuery, $options: 'i' } },
+                { username: { $regex: searchQuery, $options: 'i' } },
+                { mediaType: { $regex: searchQuery, $options: 'i' } }
+            ]
+        }).sort({ date: -1 }).limit(20);
+
+        // 3. Send both sets of data back to your Netlify frontend
+        res.json({
+            success: true,
+            movies: tmdbData.results || [],
+            reviews: reviewMatches || []
+        });
+
+    } catch (error) {
+        console.error("Master Search Error:", error);
+        res.status(500).json({ success: false, message: "Error performing global search" });
+    }
 });
 
 app.get('/api/cast/:type/:id', async (req, res) => {
