@@ -11,7 +11,7 @@ const User = require('./models/Temp');
 const auth = require('./middleware/auth');
 
 // ==========================================
-// NEW: DATABASE MODEL FOR GLOBAL REVIEWS
+// DATABASE MODELS FOR REVIEWS & WISHLISTS
 // ==========================================
 const reviewSchema = new mongoose.Schema({
     movieId: { type: String, required: true },
@@ -24,15 +24,11 @@ const reviewSchema = new mongoose.Schema({
 });
 const Review = mongoose.model('Review', reviewSchema);
 
-// ==========================================
-// NEW: DATABASE MODEL FOR PUBLIC WISHLISTS
-// ==========================================
 const userWishlistSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
     wishlist: { type: Array, default: [] }
 });
 const UserWishlist = mongoose.model('UserWishlist', userWishlistSchema);
-// ==========================================
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -78,7 +74,6 @@ app.get('/', (req, res) => {
 // AUTHENTICATION & USER PROFILE ROUTES
 // ==========================================
 
-// --- NEW: SECURE GOOGLE SINGLE SIGN-ON ENDPOINT ---
 app.post('/api/auth/google', async (req, res) => {
     const { token } = req.body;
     
@@ -87,7 +82,6 @@ app.post('/api/auth/google', async (req, res) => {
     }
 
     try {
-        // Verify token with Google API
         const googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
         const googleUser = await googleRes.json();
 
@@ -95,22 +89,18 @@ app.post('/api/auth/google', async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid Google Token" });
         }
 
-        // Verify that the token matches your Client ID
         if (googleUser.aud !== process.env.GOOGLE_CLIENT_ID) {
             return res.status(403).json({ success: false, message: "Client ID Mismatch Security Alert" });
         }
 
         const { email, name, picture } = googleUser;
 
-        // Check if user exists in database, or create them
         let user = await User.findOne({ email });
         if (!user) {
-            // Generate random password placeholder for social users
             const generatedPassword = Math.random().toString(36).slice(-10);
             const salt = await bcrypt.genSalt(10);
             const hashedPassword = await bcrypt.hash(generatedPassword, salt);
 
-            // Strip spaces to make a clean username
             const uniqueUsername = name.replace(/\s+/g, '').toLowerCase() + Math.floor(1000 + Math.random() * 9000);
 
             user = new User({
@@ -122,11 +112,10 @@ app.post('/api/auth/google', async (req, res) => {
             await user.save();
         }
 
-        // Issue JWT payload
         const payload = { user: { id: user.id } };
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, jwtToken) => {
             if (err) throw err;
-            res.json({ success: true, token: jwtToken, username: user.username });
+            res.json({ success: true, token: jwtToken, username: user.username, profilePhoto: user.profilePhoto });
         });
 
     } catch (error) {
@@ -171,7 +160,6 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// --- FORGOT PASSWORD: SEND OTP ROUTE (BYPASSES BLOCKED SMTP PORTS) ---
 app.post('/api/auth/forgot-password', async (req, res) => {
     const { email } = req.body;
     console.log(`\n\n[🚀 OTP TRIGGERED] User requested code for: ${email}`);
@@ -184,7 +172,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         }
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        otpStore[email] = { otp, expires: Date.now() + 600000 }; // 10 minutes
+        otpStore[email] = { otp, expires: Date.now() + 600000 }; 
 
         console.log(`[⏳ SENDING EMAIL] Dispatching API request to Brevo HTTP Endpoint...`);
         
@@ -203,19 +191,16 @@ app.post('/api/auth/forgot-password', async (req, res) => {
             method: "POST",
             headers: {
                 "accept": "application/json",
-                "api-key": process.env.EMAIL_PASS, // Your Brevo API Key
+                "api-key": process.env.EMAIL_PASS,
                 "content-type": "application/json"
             },
             body: JSON.stringify(sendEmailData)
         });
 
         const result = await response.json();
-
-        if (!response.ok) {
-            throw new Error(JSON.stringify(result));
-        }
+        if (!response.ok) throw new Error(JSON.stringify(result));
         
-        console.log(`[✅ EMAIL SENT SUCCESS] The 6-digit code (${otp}) was successfully processed by Brevo HTTP API!`);
+        console.log(`[✅ EMAIL SENT SUCCESS] Code successfully delivered to Brevo HTTP API!`);
         res.json({ success: true, message: "OTP sent to email." });
         
     } catch (err) {
@@ -224,7 +209,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     }
 });
 
-// --- VERIFY OTP & RESET PASSWORD ROUTE ---
 app.post('/api/auth/reset-password', async (req, res) => {
     const { email, otp, newPassword } = req.body;
     const record = otpStore[email];
@@ -246,15 +230,20 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 });
 
+// --- UPDATED TO USE NATIVE MONGODB COLLECTION BINDING ---
 app.get('/api/user/:username', async (req, res) => {
     try {
-        const user = await User.findOne({ username: req.params.username });
+        const user = await mongoose.connection.db.collection(User.collection.name).findOne({ username: req.params.username });
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        
+        let joinDate = user.createdAt;
+        if (!joinDate && user._id) joinDate = user._id.getTimestamp();
+
         res.json({
             success: true,
             profile: {
                 username: user.username,
-                joinDate: user.createdAt || new Date(),
+                joinDate: joinDate || new Date(),
                 profilePhoto: user.profilePhoto || '',
                 bio: user.bio || '',
                 favoriteGenres: user.favoriteGenres || []
@@ -265,15 +254,14 @@ app.get('/api/user/:username', async (req, res) => {
     }
 });
 
+// --- UPDATED TO USE NATIVE MONGODB COLLECTION BINDING ---
 app.put('/api/user/profile', auth, async (req, res) => {
     try {
         const { bio, profilePhoto, favoriteGenres } = req.body;
-        const user = await User.findById(req.user.id);
-        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-        if (bio !== undefined) user.bio = bio;
-        if (profilePhoto !== undefined) user.profilePhoto = profilePhoto;
-        if (favoriteGenres !== undefined) user.favoriteGenres = favoriteGenres;
-        await user.save();
+        await mongoose.connection.db.collection(User.collection.name).updateOne(
+            { _id: new mongoose.Types.ObjectId(req.user.id) },
+            { $set: { bio, profilePhoto, favoriteGenres } }
+        );
         res.json({ success: true, message: 'Profile updated successfully!' });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Server update error' });
@@ -281,7 +269,7 @@ app.put('/api/user/profile', auth, async (req, res) => {
 });
 
 // ==========================================
-// NEW: PUBLIC WISHLIST SYNC ROUTES
+// PUBLIC WISHLIST SYNC ROUTES
 // ==========================================
 app.post('/api/wishlist/sync', auth, async (req, res) => {
     try {
@@ -307,7 +295,6 @@ app.get('/api/wishlist/:username', async (req, res) => {
         res.status(500).json({ success: false, message: 'Server error retrieving wishlist' });
     }
 });
-
 
 // ==========================================
 // UTILITY ROUTES (CONTACT VIA BREVO HTTP API)
@@ -341,10 +328,7 @@ app.post('/api/contact', async (req, res) => {
         });
 
         const result = await response.json();
-
-        if (!response.ok) {
-            throw new Error(JSON.stringify(result));
-        }
+        if (!response.ok) throw new Error(JSON.stringify(result));
 
         console.log(`[✅ CONTACT SUCCESS] Support email successfully processed by Brevo API!`);
         res.json({ success: true });
@@ -424,7 +408,6 @@ app.get('/api/cast/:type/:id', async (req, res) => {
         const data = await fetchTMDB(`/${type}/${id}/credits`);
         res.json({ success: true, cast: data.cast || [] });
     } catch (error) {
-        console.error("Backend Cast Fetch Error:", error);
         res.status(500).json({ success: false, cast: [], message: "Server fetch failed" });
     }
 });
@@ -446,7 +429,7 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
                 const embeddedCredits = await fetchTMDB(`/${mediaType}/${id}/credits`);
                 if (embeddedCredits && embeddedCredits.cast) castArray = embeddedCredits.cast;
             } catch (innerErr) {
-                console.log("Internal recovery skipped:", innerErr);
+                console.log("Internal recovery skipped");
             }
         }
 
@@ -469,9 +452,6 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
     }
 });
 
-// ==========================================
-// 24/7 KEEP-ALIVE PINGER
-// ==========================================
 setInterval(() => {
     https.get('https://movie-backend-files.onrender.com'); 
     console.log("Pinged server to keep it awake!");
