@@ -11,7 +11,7 @@ const User = require('./models/Temp');
 const auth = require('./middleware/auth');
 
 // ==========================================
-// NEW: DATABASE MODEL FOR GLOBAL REVIEWS
+// DATABASE MODELS FOR REVIEWS & WISHLISTS
 // ==========================================
 const reviewSchema = new mongoose.Schema({
     movieId: { type: String, required: true },
@@ -23,7 +23,13 @@ const reviewSchema = new mongoose.Schema({
     date: { type: Date, default: Date.now }
 });
 const Review = mongoose.model('Review', reviewSchema);
-// ==========================================
+
+// 🔥 NEW: Stores a user's public wishlist
+const userWishlistSchema = new mongoose.Schema({
+    username: { type: String, required: true, unique: true },
+    wishlist: { type: Array, default: [] }
+});
+const UserWishlist = mongoose.model('UserWishlist', userWishlistSchema);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -69,7 +75,6 @@ app.get('/', (req, res) => {
 // AUTHENTICATION & USER PROFILE ROUTES
 // ==========================================
 
-// --- NEW: SECURE GOOGLE SINGLE SIGN-ON ENDPOINT ---
 app.post('/api/auth/google', async (req, res) => {
     const { token } = req.body;
     
@@ -78,7 +83,6 @@ app.post('/api/auth/google', async (req, res) => {
     }
 
     try {
-        // Verify token with Google API
         const googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
         const googleUser = await googleRes.json();
 
@@ -86,22 +90,18 @@ app.post('/api/auth/google', async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid Google Token" });
         }
 
-        // Verify that the token matches your Client ID
         if (googleUser.aud !== process.env.GOOGLE_CLIENT_ID) {
             return res.status(403).json({ success: false, message: "Client ID Mismatch Security Alert" });
         }
 
         const { email, name, picture } = googleUser;
 
-        // Check if user exists in database, or create them
         let user = await User.findOne({ email });
         if (!user) {
-            // Generate random password placeholder for social users
             const generatedPassword = Math.random().toString(36).slice(-10);
             const salt = await bcrypt.genSalt(10);
             const hashedPassword = await bcrypt.hash(generatedPassword, salt);
 
-            // Strip spaces to make a clean username
             const uniqueUsername = name.replace(/\s+/g, '').toLowerCase() + Math.floor(1000 + Math.random() * 9000);
 
             user = new User({
@@ -113,7 +113,6 @@ app.post('/api/auth/google', async (req, res) => {
             await user.save();
         }
 
-        // Issue JWT payload
         const payload = { user: { id: user.id } };
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, jwtToken) => {
             if (err) throw err;
@@ -162,7 +161,6 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// --- FORGOT PASSWORD: SEND OTP ROUTE (BYPASSES BLOCKED SMTP PORTS) ---
 app.post('/api/auth/forgot-password', async (req, res) => {
     const { email } = req.body;
     console.log(`\n\n[🚀 OTP TRIGGERED] User requested code for: ${email}`);
@@ -175,7 +173,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         }
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        otpStore[email] = { otp, expires: Date.now() + 600000 }; // 10 minutes
+        otpStore[email] = { otp, expires: Date.now() + 600000 }; 
 
         console.log(`[⏳ SENDING EMAIL] Dispatching API request to Brevo HTTP Endpoint...`);
         
@@ -194,7 +192,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
             method: "POST",
             headers: {
                 "accept": "application/json",
-                "api-key": process.env.EMAIL_PASS, // Your Brevo API Key
+                "api-key": process.env.EMAIL_PASS,
                 "content-type": "application/json"
             },
             body: JSON.stringify(sendEmailData)
@@ -215,7 +213,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     }
 });
 
-// --- VERIFY OTP & RESET PASSWORD ROUTE ---
 app.post('/api/auth/reset-password', async (req, res) => {
     const { email, otp, newPassword } = req.body;
     const record = otpStore[email];
@@ -272,7 +269,35 @@ app.put('/api/user/profile', auth, async (req, res) => {
 });
 
 // ==========================================
-// UTILITY ROUTES (CONTACT VIA BREVO HTTP API)
+// PUBLIC WISHLIST SYNC ROUTES (NEW)
+// ==========================================
+app.post('/api/wishlist/sync', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        await UserWishlist.findOneAndUpdate(
+            { username: user.username },
+            { wishlist: req.body.wishlist || [] },
+            { upsert: true, new: true }
+        );
+        res.json({ success: true });
+    } catch(err) {
+        res.status(500).json({ success: false, message: 'Server error syncing wishlist' });
+    }
+});
+
+app.get('/api/wishlist/:username', async (req, res) => {
+    try {
+        const record = await UserWishlist.findOne({ username: req.params.username });
+        res.json({ success: true, wishlist: record ? record.wishlist : [] });
+    } catch(err) {
+        res.status(500).json({ success: false, message: 'Server error retrieving wishlist' });
+    }
+});
+
+// ==========================================
+// UTILITY ROUTES (CONTACT)
 // ==========================================
 
 app.post('/api/contact', async (req, res) => {
@@ -304,14 +329,12 @@ app.post('/api/contact', async (req, res) => {
 
         const result = await response.json();
 
-        if (!response.ok) {
-            throw new Error(JSON.stringify(result));
-        }
+        if (!response.ok) throw new Error(JSON.stringify(result));
 
         console.log(`[✅ CONTACT SUCCESS] Support email successfully processed by Brevo API!`);
         res.json({ success: true });
     } catch (err) {
-        console.error("\n[🚨 CONTACT EMAIL ERROR] Could not route contact email via HTTP API:", err);
+        console.error("\n[🚨 CONTACT EMAIL ERROR]", err);
         res.status(500).json({ success: false });
     }
 });
@@ -342,19 +365,21 @@ app.post('/api/review', auth, async (req, res) => {
 });
 
 // ==========================================
-// MEDIA ROUTES (PROXY TO SECURE API KEY)
+// MEDIA ROUTES (PAGINATED TMDB FETCHES)
 // ==========================================
 
 app.get('/api/trending', async (req, res) => {
     try {
-        const data = await fetchTMDB('/trending/all/day?language=en-US');
+        const page = req.query.page || 1;
+        const data = await fetchTMDB(`/trending/all/day?language=en-US&page=${page}`);
         res.json(data);
     } catch (error) { res.status(502).json({ success: false, message: "TMDB error" }); }
 });
 
 app.get('/api/webseries', async (req, res) => {
     try {
-        const data = await fetchTMDB('/discover/tv?language=en-US&sort_by=popularity.desc&page=1');
+        const page = req.query.page || 1;
+        const data = await fetchTMDB(`/discover/tv?language=en-US&sort_by=popularity.desc&page=${page}`);
         res.json(data);
     } catch (error) { res.status(502).json({ success: false, message: "TMDB error" }); }
 });
@@ -362,28 +387,25 @@ app.get('/api/webseries', async (req, res) => {
 app.get('/api/genre/:type/:id', async (req, res) => {
     try {
         const { type, id } = req.params;
-        const data = await fetchTMDB(`/discover/${type}?with_genres=${id}&sort_by=popularity.desc`);
+        const page = req.query.page || 1;
+        const data = await fetchTMDB(`/discover/${type}?with_genres=${id}&sort_by=popularity.desc&page=${page}`);
         res.json(data);
     } catch (error) { res.status(502).json({ success: false, message: "Error fetching genre data" }); }
 });
 
-// ==========================================
-// UPGRADED MULTI-SEARCH: TMDB MOVIES + MONGODB REVIEWS
-// ==========================================
 app.get('/api/search', async (req, res) => {
     try {
         const searchQuery = req.query.query;
+        const page = req.query.page || 1;
         if (!searchQuery) return res.json({ movies: [], reviews: [] });
 
-        // 1. Search TMDB for Movies / TV Series
         let tmdbData = { results: [] };
         try {
-            tmdbData = await fetchTMDB(`/search/multi?query=${encodeURIComponent(searchQuery)}&language=en-US`);
+            tmdbData = await fetchTMDB(`/search/multi?query=${encodeURIComponent(searchQuery)}&language=en-US&page=${page}`);
         } catch (tmdbErr) {
-            console.error("TMDB Search failed, continuing to database search...", tmdbErr);
+            console.error("TMDB Search failed", tmdbErr);
         }
 
-        // 2. Search MongoDB Reviews for matching text
         const reviewMatches = await Review.find({
             $or: [
                 { content: { $regex: searchQuery, $options: 'i' } },
@@ -392,7 +414,6 @@ app.get('/api/search', async (req, res) => {
             ]
         }).sort({ date: -1 }).limit(20);
 
-        // 3. Send both sets of data back to your Netlify frontend
         res.json({
             success: true,
             movies: tmdbData.results || [],
@@ -411,7 +432,6 @@ app.get('/api/cast/:type/:id', async (req, res) => {
         const data = await fetchTMDB(`/${type}/${id}/credits`);
         res.json({ success: true, cast: data.cast || [] });
     } catch (error) {
-        console.error("Backend Cast Fetch Error:", error);
         res.status(500).json({ success: false, cast: [], message: "Server fetch failed" });
     }
 });
@@ -433,7 +453,7 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
                 const embeddedCredits = await fetchTMDB(`/${mediaType}/${id}/credits`);
                 if (embeddedCredits && embeddedCredits.cast) castArray = embeddedCredits.cast;
             } catch (innerErr) {
-                console.log("Internal recovery skipped:", innerErr);
+                console.log("Internal recovery skipped");
             }
         }
 
