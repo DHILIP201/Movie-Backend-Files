@@ -232,6 +232,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
 app.get('/api/user/:username', async (req, res) => {
     try {
+        // Fallback to connection db to bypass rigid schema checks if needed.
         const user = await mongoose.connection.db.collection(User.collection.name).findOne({ username: req.params.username });
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
         
