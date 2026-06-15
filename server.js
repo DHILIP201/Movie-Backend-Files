@@ -11,7 +11,7 @@ const User = require('./models/Temp');
 const auth = require('./middleware/auth');
 
 // ==========================================
-// DATABASE MODELS FOR REVIEWS & WISHLISTS
+// DATABASE MODELS FOR REVIEWS, WISHLISTS & PROFILES
 // ==========================================
 const reviewSchema = new mongoose.Schema({
     movieId: { type: String, required: true },
@@ -29,6 +29,16 @@ const userWishlistSchema = new mongoose.Schema({
     wishlist: { type: Array, default: [] }
 });
 const UserWishlist = mongoose.model('UserWishlist', userWishlistSchema);
+
+// NEW: Dedicated Profile Schema to bypass Temp.js strictness
+const userProfileSchema = new mongoose.Schema({
+    username: { type: String, required: true, unique: true },
+    bio: { type: String, default: '' },
+    profilePhoto: { type: String, default: '' },
+    favoriteGenres: { type: Array, default: [] }
+});
+const UserProfile = mongoose.model('UserProfile', userProfileSchema);
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -106,16 +116,22 @@ app.post('/api/auth/google', async (req, res) => {
             user = new User({
                 username: uniqueUsername,
                 email: email,
-                password: hashedPassword,
-                profilePhoto: picture || ''
+                password: hashedPassword
             });
             await user.save();
+
+            // Save Google photo to dedicated profile collection
+            const newProfile = new UserProfile({
+                username: uniqueUsername,
+                profilePhoto: picture || ''
+            });
+            await newProfile.save();
         }
 
         const payload = { user: { id: user.id } };
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, jwtToken) => {
             if (err) throw err;
-            res.json({ success: true, token: jwtToken, username: user.username, profilePhoto: user.profilePhoto });
+            res.json({ success: true, token: jwtToken, username: user.username, profilePhoto: picture || '' });
         });
 
     } catch (error) {
@@ -236,10 +252,12 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
 app.get('/api/user/:username', async (req, res) => {
     try {
-        // Utilizing strict false / lean() to pull all schema and non-schema data attached to user
         const user = await User.findOne({ username: req.params.username }).lean();
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
         
+        // Fetch from dedicated Profile collection
+        const profile = await UserProfile.findOne({ username: req.params.username }).lean();
+
         let joinDate = user.createdAt;
         if (!joinDate && user._id) joinDate = user._id.getTimestamp();
 
@@ -248,9 +266,9 @@ app.get('/api/user/:username', async (req, res) => {
             profile: {
                 username: user.username,
                 joinDate: joinDate || new Date(),
-                profilePhoto: user.profilePhoto || '',
-                bio: user.bio || '',
-                favoriteGenres: user.favoriteGenres || []
+                profilePhoto: profile ? profile.profilePhoto : '',
+                bio: profile ? profile.bio : '',
+                favoriteGenres: profile ? profile.favoriteGenres : []
             }
         });
     } catch (error) {
@@ -260,13 +278,16 @@ app.get('/api/user/:username', async (req, res) => {
 
 app.put('/api/user/profile', auth, async (req, res) => {
     try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
         const { bio, profilePhoto, favoriteGenres } = req.body;
         
-        // Strict: false forces MongoDB to accept and save data even if it was missing from Temp.js
-        await User.findByIdAndUpdate(
-            req.user.id,
+        // Save to dedicated Profile collection
+        await UserProfile.findOneAndUpdate(
+            { username: user.username },
             { $set: { bio, profilePhoto, favoriteGenres } },
-            { new: true, strict: false }
+            { upsert: true, new: true }
         );
 
         res.json({ success: true, message: 'Profile updated successfully!' });
@@ -444,13 +465,13 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
         if (!mainData.credits) mainData.credits = {};
         mainData.credits.cast = castArray;
 
-        // Fetching Reviews and mapping the LIVE User Profile Data to them
+        // Fetching Reviews and mapping the LIVE User Profile Data from the new Collection
         const globalReviews = await Review.find({ movieId: id.toString(), mediaType }).sort({ date: -1 }).lean();
         
         for (let i = 0; i < globalReviews.length; i++) {
-            const commenter = await User.findOne({ username: globalReviews[i].username }).lean();
-            if (commenter && commenter.profilePhoto) {
-                globalReviews[i].profilePhoto = commenter.profilePhoto;
+            const commenterProfile = await UserProfile.findOne({ username: globalReviews[i].username }).lean();
+            if (commenterProfile && commenterProfile.profilePhoto) {
+                globalReviews[i].profilePhoto = commenterProfile.profilePhoto;
             }
         }
         
