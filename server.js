@@ -230,10 +230,14 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 });
 
+// ==========================================
+// PROFILE FETCH & UPDATE
+// ==========================================
+
 app.get('/api/user/:username', async (req, res) => {
     try {
-        // Fallback to connection db to bypass rigid schema checks if needed.
-        const user = await mongoose.connection.db.collection(User.collection.name).findOne({ username: req.params.username });
+        // Utilizing strict false / lean() to pull all schema and non-schema data attached to user
+        const user = await User.findOne({ username: req.params.username }).lean();
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
         
         let joinDate = user.createdAt;
@@ -257,12 +261,17 @@ app.get('/api/user/:username', async (req, res) => {
 app.put('/api/user/profile', auth, async (req, res) => {
     try {
         const { bio, profilePhoto, favoriteGenres } = req.body;
-        await mongoose.connection.db.collection(User.collection.name).updateOne(
-            { _id: new mongoose.Types.ObjectId(req.user.id) },
-            { $set: { bio, profilePhoto, favoriteGenres } }
+        
+        // Strict: false forces MongoDB to accept and save data even if it was missing from Temp.js
+        await User.findByIdAndUpdate(
+            req.user.id,
+            { $set: { bio, profilePhoto, favoriteGenres } },
+            { new: true, strict: false }
         );
+
         res.json({ success: true, message: 'Profile updated successfully!' });
     } catch (error) {
+        console.error("Profile DB Update Error:", error);
         res.status(500).json({ success: false, message: 'Server update error' });
     }
 });
@@ -435,7 +444,16 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
         if (!mainData.credits) mainData.credits = {};
         mainData.credits.cast = castArray;
 
-        const globalReviews = await Review.find({ movieId: id.toString(), mediaType }).sort({ date: -1 });
+        // Fetching Reviews and mapping the LIVE User Profile Data to them
+        const globalReviews = await Review.find({ movieId: id.toString(), mediaType }).sort({ date: -1 }).lean();
+        
+        for (let i = 0; i < globalReviews.length; i++) {
+            const commenter = await User.findOne({ username: globalReviews[i].username }).lean();
+            if (commenter && commenter.profilePhoto) {
+                globalReviews[i].profilePhoto = commenter.profilePhoto;
+            }
+        }
+        
         mainData.reviews = globalReviews;
 
         res.json({
@@ -459,4 +477,3 @@ setInterval(() => {
 app.listen(PORT, () => {
     console.log(`🚀 Secure Server spinning safely on port http://localhost:${PORT}`);
 });
-// --- END OF FILE ---
