@@ -50,8 +50,10 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
-app.use(express.json());
 
+// 🚨 NEW: Increased body limits so the server accepts large image strings
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // MongoDB Connection Block
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('🍃 Connected to MongoDB Atlas successfully!'))
