@@ -45,15 +45,21 @@ const PORT = process.env.PORT || 5000;
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || 'movie_secret_key';
 
+// 🚨 UPDATED: Explicitly whitelist your new custom domains for strict CORS security
 app.use(cors({
-    origin: '*', 
+    origin: [
+        'https://nexus-movie.abrdns.com', 
+        'https://www.nexus-movie.abrdns.com',
+        'https://nexus-movie.netlify.app'
+    ], 
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
 
-// 🚨 NEW: Increased body limits so the server accepts large image strings
+// Increased body limits so the server accepts large image strings
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
 // MongoDB Connection Block
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('🍃 Connected to MongoDB Atlas successfully!'))
