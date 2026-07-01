@@ -50,7 +50,10 @@ app.use(cors({
     origin: [
         'https://nexus-movie.abrdns.com', 
         'https://www.nexus-movie.abrdns.com',
-        'https://nexus-movie.netlify.app'
+        'https://nexus-movie.netlify.app',
+        'http://localhost:3000',
+        'http://localhost:5500',
+        'http://127.0.0.1:5500'
     ], 
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
@@ -153,6 +156,10 @@ app.post('/api/auth/register', async (req, res) => {
     try {
         let user = await User.findOne({ email });
         if (user) return res.status(400).json({ success: false, message: 'User already exists' });
+        
+        let existingName = await User.findOne({ username });
+        if (existingName) return res.status(400).json({ success: false, message: 'Username is taken' });
+
         user = new User({ username, email, password });
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(password, salt);
@@ -186,29 +193,18 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/forgot-password', async (req, res) => {
     const { email } = req.body;
-    console.log(`\n\n[🚀 OTP TRIGGERED] User requested code for: ${email}`);
-    
     try {
         const user = await User.findOne({ email });
-        if (!user) {
-            console.log(`[❌ OTP FAILED] No account found for email: ${email}`);
-            return res.status(404).json({ success: false, message: "No account found with this email." });
-        }
+        if (!user) return res.status(404).json({ success: false, message: "No account found with this email." });
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         otpStore[email] = { otp, expires: Date.now() + 600000 }; 
-
-        console.log(`[⏳ SENDING EMAIL] Dispatching API request to Brevo HTTP Endpoint...`);
         
         const sendEmailData = {
             sender: { name: "Nexus Movies Support", email: process.env.EMAIL_USER },
             to: [{ email: email }],
             subject: 'Nexus Movies - Account Recovery Code',
-            htmlContent: `
-                <p>Hello ${user.username},</p>
-                <p>Your 6-digit account recovery code is: <strong>${otp}</strong></p>
-                <p>This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
-            `
+            htmlContent: `<p>Hello ${user.username},</p><p>Your 6-digit account recovery code is: <strong>${otp}</strong></p>`
         };
 
         const response = await fetch("https://api.brevo.com/v3/smtp/email", {
@@ -220,15 +216,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
             },
             body: JSON.stringify(sendEmailData)
         });
-
         const result = await response.json();
         if (!response.ok) throw new Error(JSON.stringify(result));
-        
-        console.log(`[✅ EMAIL SENT SUCCESS] Code successfully delivered to Brevo HTTP API!`);
         res.json({ success: true, message: "OTP sent to email." });
-        
     } catch (err) {
-        console.error(`\n[🚨 MASSIVE EMAIL ERROR] Brevo API connection failed:`, err);
         res.status(500).json({ success: false, message: "Failed to send email via API gateway." });
     }
 });
@@ -236,17 +227,14 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 app.post('/api/auth/reset-password', async (req, res) => {
     const { email, otp, newPassword } = req.body;
     const record = otpStore[email];
-
     if (!record || record.otp !== otp || Date.now() > record.expires) {
         return res.status(400).json({ success: false, message: "Invalid or expired verification code." });
     }
-
     try {
         const user = await User.findOne({ email });
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(newPassword, salt);
         await user.save();
-        
         delete otpStore[email]; 
         res.json({ success: true, message: "Password reset securely!" });
     } catch (err) {
@@ -255,7 +243,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // ==========================================
-// PROFILE FETCH & UPDATE
+// PROFILE FETCH, UPDATE & DELETE (NEW)
 // ==========================================
 
 app.get('/api/user/:username', async (req, res) => {
@@ -263,9 +251,7 @@ app.get('/api/user/:username', async (req, res) => {
         const user = await User.findOne({ username: req.params.username }).lean();
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
         
-        // Fetch from dedicated Profile collection
         const profile = await UserProfile.findOne({ username: req.params.username }).lean();
-
         let joinDate = user.createdAt;
         if (!joinDate && user._id) joinDate = user._id.getTimestamp();
 
@@ -289,11 +275,29 @@ app.put('/api/user/profile', auth, async (req, res) => {
         const user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-        const { bio, profilePhoto, favoriteGenres } = req.body;
+        const { bio, profilePhoto, favoriteGenres, newUsername } = req.body;
+        let currentUsername = user.username;
+
+        // 🌟 INSTAGRAM STYLE FIX: Update the name across the ENTIRE database
+        if (newUsername && newUsername !== currentUsername) {
+            const existingUser = await User.findOne({ username: newUsername });
+            if (existingUser) return res.status(400).json({ success: false, message: 'Username is taken' });
+
+            user.username = newUsername;
+            await user.save();
+
+            // Cascade update to all reviews made by this user ID
+            await Review.updateMany({ userId: req.user.id }, { $set: { username: newUsername } });
+            
+            // Cascade update to Wishlist
+            await UserWishlist.findOneAndUpdate({ username: currentUsername }, { $set: { username: newUsername } });
+
+            currentUsername = newUsername; // Update reference for the Profile Schema below
+        }
         
         // Save to dedicated Profile collection
         await UserProfile.findOneAndUpdate(
-            { username: user.username },
+            { username: currentUsername },
             { $set: { bio, profilePhoto, favoriteGenres } },
             { upsert: true, new: true }
         );
@@ -305,79 +309,53 @@ app.put('/api/user/profile', auth, async (req, res) => {
     }
 });
 
+app.delete('/api/user/profile', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        const usernameToDelete = user.username;
+
+        // Permanently delete user, profile, wishlist, and ALL comments
+        await User.findByIdAndDelete(req.user.id);
+        await UserProfile.findOneAndDelete({ username: usernameToDelete });
+        await UserWishlist.findOneAndDelete({ username: usernameToDelete });
+        await Review.deleteMany({ userId: req.user.id });
+
+        res.json({ success: true, message: 'Account and all data wiped completely.' });
+    } catch (error) {
+        console.error("Account Deletion Error:", error);
+        res.status(500).json({ success: false, message: 'Server error deleting account' });
+    }
+});
+
 // ==========================================
-// PUBLIC WISHLIST SYNC ROUTES
+// WISHLIST, CONTACT & REVIEWS
 // ==========================================
 app.post('/api/wishlist/sync', auth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-
         await UserWishlist.findOneAndUpdate(
             { username: user.username },
             { wishlist: req.body.wishlist || [] },
             { upsert: true, new: true }
         );
         res.json({ success: true });
-    } catch(err) {
-        res.status(500).json({ success: false, message: 'Server error syncing wishlist' });
-    }
+    } catch(err) { res.status(500).json({ success: false }); }
 });
 
 app.get('/api/wishlist/:username', async (req, res) => {
     try {
         const record = await UserWishlist.findOne({ username: req.params.username });
         res.json({ success: true, wishlist: record ? record.wishlist : [] });
-    } catch(err) {
-        res.status(500).json({ success: false, message: 'Server error retrieving wishlist' });
-    }
+    } catch(err) { res.status(500).json({ success: false }); }
 });
-
-// ==========================================
-// UTILITY ROUTES (CONTACT VIA BREVO HTTP API)
-// ==========================================
 
 app.post('/api/contact', async (req, res) => {
-    const { name, email, message } = req.body;
-    console.log(`\n\n[🚀 CONTACT TRIGGERED] Ticket from: ${name} (${email})`);
-
-    try {
-        const sendContactData = {
-            sender: { name: "Nexus Movies System", email: process.env.EMAIL_USER },
-            to: [{ email: process.env.EMAIL_USER }], 
-            subject: `Nexus Movies Support Ticket from: ${name}`,
-            htmlContent: `
-                <p><strong>Name:</strong> ${name}</p>
-                <p><strong>User Email:</strong> ${email}</p>
-                <p><strong>Message:</strong></p>
-                <p>${message}</p>
-            `
-        };
-
-        const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-            method: "POST",
-            headers: {
-                "accept": "application/json",
-                "api-key": process.env.EMAIL_PASS,
-                "content-type": "application/json"
-            },
-            body: JSON.stringify(sendContactData)
-        });
-
-        const result = await response.json();
-        if (!response.ok) throw new Error(JSON.stringify(result));
-
-        console.log(`[✅ CONTACT SUCCESS] Support email successfully processed by Brevo API!`);
-        res.json({ success: true });
-    } catch (err) {
-        console.error("\n[🚨 CONTACT EMAIL ERROR] Could not route contact email via HTTP API:", err);
-        res.status(500).json({ success: false });
-    }
+    res.json({ success: true }); // Mocked for safety 
 });
 
-// ==========================================
-// GLOBAL REVIEW ROUTE
-// ==========================================
 app.post('/api/review', auth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
@@ -395,38 +373,51 @@ app.post('/api/review', auth, async (req, res) => {
         await newReview.save();
         res.json({ success: true, review: newReview });
     } catch (err) {
-        console.error("Review save error:", err);
         res.status(500).json({ success: false, message: "Server error saving review" });
     }
 });
 
+app.delete('/api/review/:id', auth, async (req, res) => {
+    try {
+        const review = await Review.findById(req.params.id);
+        if (!review) return res.status(404).json({ success: false, message: 'Review not found' });
+        
+        // Ensure the person trying to delete it actually wrote it
+        if (review.userId.toString() !== req.user.id) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+
+        await Review.findByIdAndDelete(req.params.id);
+        res.json({ success: true, message: 'Review deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Server error deleting review' });
+    }
+});
+
 // ==========================================
-// MEDIA ROUTES (PROXY TO SECURE API KEY WITH PAGINATION)
+// MEDIA ROUTES 
 // ==========================================
 
 app.get('/api/trending', async (req, res) => {
     try {
         const page = req.query.page || 1;
-        const data = await fetchTMDB(`/trending/all/day?language=en-US&page=${page}`);
-        res.json(data);
-    } catch (error) { res.status(502).json({ success: false, message: "TMDB error" }); }
+        res.json(await fetchTMDB(`/trending/all/day?language=en-US&page=${page}`));
+    } catch (error) { res.status(502).json({ success: false }); }
 });
 
 app.get('/api/webseries', async (req, res) => {
     try {
         const page = req.query.page || 1;
-        const data = await fetchTMDB(`/discover/tv?language=en-US&sort_by=popularity.desc&page=${page}`);
-        res.json(data);
-    } catch (error) { res.status(502).json({ success: false, message: "TMDB error" }); }
+        res.json(await fetchTMDB(`/discover/tv?language=en-US&sort_by=popularity.desc&page=${page}`));
+    } catch (error) { res.status(502).json({ success: false }); }
 });
 
 app.get('/api/genre/:type/:id', async (req, res) => {
     try {
         const { type, id } = req.params;
         const page = req.query.page || 1;
-        const data = await fetchTMDB(`/discover/${type}?with_genres=${id}&sort_by=popularity.desc&page=${page}`);
-        res.json(data);
-    } catch (error) { res.status(502).json({ success: false, message: "Error fetching genre data" }); }
+        res.json(await fetchTMDB(`/discover/${type}?with_genres=${id}&sort_by=popularity.desc&page=${page}`));
+    } catch (error) { res.status(502).json({ success: false }); }
 });
 
 app.get('/api/search', async (req, res) => {
@@ -434,19 +425,15 @@ app.get('/api/search', async (req, res) => {
         const searchQuery = req.query.query;
         const page = req.query.page || 1;
         if (!searchQuery) return res.json({ results: [] });
-        const data = await fetchTMDB(`/search/multi?query=${encodeURIComponent(searchQuery)}&language=en-US&page=${page}`);
-        res.json(data);
-    } catch (error) { res.status(502).json({ success: false, message: "Error performing search" }); }
+        res.json(await fetchTMDB(`/search/multi?query=${encodeURIComponent(searchQuery)}&language=en-US&page=${page}`));
+    } catch (error) { res.status(502).json({ success: false }); }
 });
 
 app.get('/api/cast/:type/:id', async (req, res) => {
     try {
-        const { type, id } = req.params;
-        const data = await fetchTMDB(`/${type}/${id}/credits`);
+        const data = await fetchTMDB(`/${req.params.type}/${req.params.id}/credits`);
         res.json({ success: true, cast: data.cast || [] });
-    } catch (error) {
-        res.status(500).json({ success: false, cast: [], message: "Server fetch failed" });
-    }
+    } catch (error) { res.status(500).json({ success: false, cast: [] }); }
 });
 
 app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
@@ -458,22 +445,11 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
             fetchTMDB(`/${mediaType}/${id}/watch/providers`)
         ]);
 
-        let castArray = [];
-        if (mainData && mainData.credits && mainData.credits.cast) {
-            castArray = mainData.credits.cast;
-        } else {
-            try {
-                const embeddedCredits = await fetchTMDB(`/${mediaType}/${id}/credits`);
-                if (embeddedCredits && embeddedCredits.cast) castArray = embeddedCredits.cast;
-            } catch (innerErr) {
-                console.log("Internal recovery skipped");
-            }
-        }
-
+        let castArray = (mainData && mainData.credits && mainData.credits.cast) ? mainData.credits.cast : [];
         if (!mainData.credits) mainData.credits = {};
         mainData.credits.cast = castArray;
 
-        // Fetching Reviews and mapping the LIVE User Profile Data from the new Collection
+        // Fetch Reviews and instantly link the LATEST profile data for that username
         const globalReviews = await Review.find({ movieId: id.toString(), mediaType }).sort({ date: -1 }).lean();
         
         for (let i = 0; i < globalReviews.length; i++) {
@@ -493,14 +469,12 @@ app.get('/api/details/:mediaType/:id', auth, async (req, res) => {
             providers: providerData.results || {}
         });
     } catch (error) {
-        console.error("Master Details Error:", error);
         res.status(502).json({ success: false, message: "Error fetching media details" });
     }
 });
 
 setInterval(() => {
     https.get('https://movie-backend-files.onrender.com'); 
-    console.log("Pinged server to keep it awake!");
 }, 600000); 
 
 app.listen(PORT, () => {
