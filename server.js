@@ -39,7 +39,6 @@ const userProfileSchema = new mongoose.Schema({
 });
 const UserProfile = mongoose.model('UserProfile', userProfileSchema);
 
-
 const app = express();
 const PORT = process.env.PORT || 5000;
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
@@ -50,10 +49,7 @@ app.use(cors({
     origin: [
         'https://nexus-movie.abrdns.com', 
         'https://www.nexus-movie.abrdns.com',
-        'https://nexus-movie.netlify.app',
-        'http://localhost:3000',
-        'http://localhost:5500',
-        'http://127.0.0.1:5500'
+        'https://nexus-movie.netlify.app'
     ], 
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
@@ -291,7 +287,9 @@ app.put('/api/user/profile', auth, async (req, res) => {
             
             // Cascade update to Wishlist
             await UserWishlist.findOneAndUpdate({ username: currentUsername }, { $set: { username: newUsername } });
-
+            
+            // Handle Profile collection renaming
+            await UserProfile.findOneAndDelete({ username: currentUsername });
             currentUsername = newUsername; // Update reference for the Profile Schema below
         }
         
@@ -383,7 +381,7 @@ app.delete('/api/review/:id', auth, async (req, res) => {
         if (!review) return res.status(404).json({ success: false, message: 'Review not found' });
         
         // Ensure the person trying to delete it actually wrote it
-        if (review.userId.toString() !== req.user.id) {
+        if (review.userId && review.userId.toString() !== req.user.id) {
             return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
 
