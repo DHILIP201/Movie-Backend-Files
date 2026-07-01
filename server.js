@@ -30,7 +30,7 @@ const userWishlistSchema = new mongoose.Schema({
 });
 const UserWishlist = mongoose.model('UserWishlist', userWishlistSchema);
 
-// NEW: Dedicated Profile Schema to bypass Temp.js strictness
+// Dedicated Profile Schema
 const userProfileSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
     bio: { type: String, default: '' },
@@ -44,7 +44,7 @@ const PORT = process.env.PORT || 5000;
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || 'movie_secret_key';
 
-// 🚨 UPDATED: Explicitly whitelist your new custom domains for strict CORS security
+// Explicitly whitelist your new custom domains for strict CORS security
 app.use(cors({
     origin: [
         'https://nexus-movie.abrdns.com', 
@@ -239,7 +239,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // ==========================================
-// PROFILE FETCH, UPDATE & DELETE (NEW)
+// PROFILE FETCH, UPDATE & DELETE 
 // ==========================================
 
 app.get('/api/user/:username', async (req, res) => {
@@ -274,7 +274,7 @@ app.put('/api/user/profile', auth, async (req, res) => {
         const { bio, profilePhoto, favoriteGenres, newUsername } = req.body;
         let currentUsername = user.username;
 
-        // 🌟 INSTAGRAM STYLE FIX: Update the name across the ENTIRE database
+        // INSTAGRAM STYLE FIX: Update the name across the ENTIRE database
         if (newUsername && newUsername !== currentUsername) {
             const existingUser = await User.findOne({ username: newUsername });
             if (existingUser) return res.status(400).json({ success: false, message: 'Username is taken' });
