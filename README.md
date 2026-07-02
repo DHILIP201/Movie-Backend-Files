@@ -1,89 +1,67 @@
-🎬 Nexus Movies
+🎬 Nexus Movies: Advanced Full-Stack Discovery Platform
 
-Nexus Movies is a lightning-fast, beautifully designed full-stack movie discovery platform. Powered by the TMDB API, it features real-time community reviews, customizable public profiles, secure wishlists, and seamless Google OAuth integration. Developed by Mutex.
+Developed by Mutex - A Premium Movie Discovery & Community Experience
 
-✨ Key Features
+Nexus Movies is a lightning-fast, beautifully designed full-stack movie discovery platform. Powered by the TMDB API, it features real-time community reviews, customizable public profiles, secure wishlists, and seamless Google OAuth integration. It is built to deliver rich media details and real-time streaming availability without compromising on speed or security.
+
+✨ Core Features
 
 🔒 Robust Authentication: Supports secure Email/Password registration (bcrypt hashed + JWT) and 1-click Google OAuth 2.0 login.
 
-📧 OTP Password Recovery: Integrated with the Brevo HTTP API to send secure 6-digit email OTPs for forgotten passwords.
+📧 OTP Password Recovery: Integrated with the Brevo HTTP API to send secure 6-digit email verification codes for forgotten passwords.
 
-💬 Instagram-Style Comments:
+💬 Instagram-Style Comments: Features live star ratings, reply tagging, and 3-dot context menus (⋮) for instant comment deletion.
 
-Dynamic review system with live star ratings.
+🛡️ Alias Shield (Dynamic Sync): If a user changes their username, the database automatically intercepts and cascades the update so all their past comments instantly reflect their new name and avatar.
 
-3-dot context menus (⋮) allowing users to instantly delete their own comments or report others.
+👤 Comprehensive Profiles: Users can customize their bios, upload Base-64 compressed profile pictures, and select favorite genres. Features both Private Dashboard and Public viewing modes.
 
-Reply tagging system that auto-fills usernames.
-
-Alias Shield (Dynamic Sync): If a user changes their username, the database automatically cascades the update so all their past comments instantly reflect their new name and avatar.
-
-👤 Comprehensive User Profiles: Users can customize their bios, upload profile pictures (auto-compressed to Base64), and select favorite genres. Features both Private Dashboard and Public viewing modes.
-
-❤️ Live Wishlists: Users can bookmark movies/TV shows to a localized and cloud-synced public wishlist.
+❤️ Live Wishlists: Users can bookmark movies and TV shows to a localized and cloud-synced public wishlist.
 
 🎥 Rich TMDB Integration: Live trending feeds, web series tracking, genre filtering, live search, cast details, embedded YouTube trailers, and region-specific streaming provider data (Where to watch).
 
-🛡️ Absolute Data Control: A strict account deletion feature that cascades to permanently wipe the user, their profile, their wishlist, and all associated comments from the database forever.
+🧨 Absolute Data Control: A strict account deletion feature that cascades to permanently wipe the user, their profile, their wishlist, and all associated comments from the database forever.
 
-🛠️ Tech Stack
+🛠️ Technology Stack
 
-Frontend:
+Backend (The Core Engine)
 
-HTML5 / CSS3 (Custom Variables, CSS Grid/Flexbox)
+Node.js & Express.js: Handles secure routing, API integration, and stateless session management.
 
-Vanilla JavaScript (ES6+)
+MongoDB Atlas & Mongoose: Highly relational data modeling using schemas.
 
-Google Identity Services (GSI)
+JWT & Bcrypt.js: Industry-standard cryptographic security for passwords and sessions.
 
-UI Highlights: Skeleton loaders, custom horror-flicker CSS animations, and modal-driven architecture.
+Frontend (The User Interface)
 
-Backend:
+HTML5 / CSS3 / Vanilla JS: Lightweight, lightning-fast rendering without heavy framework overhead. Custom grid architecture and horror-flicker CSS animations.
 
-Node.js & Express.js
+Google Identity Services (GSI): Handles seamless OAuth token generation.
 
-MongoDB Atlas & Mongoose (Schemas: User, UserProfile, UserWishlist, Review)
+External APIs (The Data Feeds)
 
-JWT (JSON Web Tokens) for stateless session management
+TMDB API: Global movie, TV, and streaming provider data.
 
-Bcrypt.js for password cryptography
+Brevo API: Transactional SMTP routing for secure OTP emails.
 
-External APIs:
+🚀 How to Run Locally
 
-TMDB API (Movie & TV Data)
+Follow these exact steps to deploy the Nexus Movies architecture on your local machine:
 
-Brevo API (Transactional SMTP Emails)
-
-Google OAuth 2.0
-
-🚀 Local Setup & Installation
-
-Prerequisites
-
-Node.js installed
-
-MongoDB Atlas Account (or local MongoDB)
-
-TMDB API Key
-
-Google Cloud Console Project (for Client ID)
-
-Brevo Account (for SMTP API keys)
-
-1. Clone the Repository
+1. Clone the repository and navigate to the directory:
 
 git clone https://github.com/yourusername/nexus-movies.git
 cd nexus-movies
 
 
-2. Backend Setup
-
-Navigate to the backend directory and install dependencies:
+2. Install Backend Dependencies:
+Navigate to the backend directory and install the required packages:
 
 npm install express cors mongoose bcryptjs jsonwebtoken dotenv
 
 
-Create a .env file in the root of your backend directory and add the following:
+3. Configure Environment Variables:
+Create a .env file in the root of your backend directory and add your API keys:
 
 PORT=5000
 MONGO_URI=your_mongodb_connection_string
@@ -94,35 +72,24 @@ EMAIL_USER=your_brevo_verified_email_address
 EMAIL_PASS=your_brevo_smtp_api_key
 
 
-Start the backend server:
+4. Start the Core Server:
 
 node server.js
 
 
-3. Frontend Setup
+(You should see a success message: 🚀 Secure Server spinning safely on port http://localhost:5000)
 
-The frontend is built with vanilla web technologies, so no build step is required!
+5. Launch the Frontend UI:
+Since the frontend uses vanilla web technologies, no build step is required. Simply open index.html in your browser. (Using an extension like VS Code Live Server is recommended to prevent CORS issues). Make sure BASE_BACKEND_URL in the JavaScript points to your local server.
 
-Open index.html.
+🗄️ Database Architecture
 
-Ensure BASE_BACKEND_URL on line ~1100 points to your local server (http://localhost:5000/api) or your deployed backend URL.
+Users: Handles core authentication (Username, Email, Hashed Password).
 
-Open index.html in your browser (using an extension like VS Code Live Server is recommended to prevent CORS issues).
+UserProfiles: Dedicated collection for Bios, Avatars, and Favorite Genres to allow flexible updates.
 
-🗄️ Database Schema Overview
+Reviews: Stores media IDs, content, and ratings, mapping dynamically to user IDs for secure deletion.
 
-Users: Handles core auth (Username, Email, Hashed Password).
+UserWishlists: Stores arrays of saved media objects tied securely to a specific user session.
 
-UserProfiles: Dedicated collection for Bios, Avatars, and Favorite Genres to bypass strict temp schemas.
-
-Reviews: Stores movieId, content, rating, and maps dynamically to userId.
-
-UserWishlists: Stores arrays of saved media objects tied to a specific username.
-
-🤝 Contributing
-
-Contributions, issues, and feature requests are welcome! Feel free to check the issues page.
-
-📝 License
-
-This project is proprietary and developed by Mutex.
+Built with precision by Mutex.
