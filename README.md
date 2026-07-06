@@ -1,8 +1,8 @@
 🎬 Nexus Movies: Advanced Full-Stack Discovery Platform
 
-Developed by Mutex - A Premium Movie Discovery & Community Experience
+A Flagship Product Developed by Mutex — Premium Movie Discovery & Community Experience
 
-Nexus Movies is a lightning-fast, beautifully designed full-stack movie discovery platform. Powered by the TMDB API, it features real-time community reviews, customizable public profiles, secure wishlists, and seamless Google OAuth integration. It is built to deliver rich media details and real-time streaming availability without compromising on speed or security.
+Nexus Movies is a lightning-fast, beautifully designed full-stack movie discovery platform, engineered as a core product by my software company, Mutex. Powered by the TMDB API, it features real-time community reviews, customizable public profiles, secure wishlists, and seamless Google OAuth integration. It is built to deliver rich media details and real-time streaming availability without compromising on speed, scalability, or security.
 
 ✨ Core Features
 
@@ -10,7 +10,7 @@ Nexus Movies is a lightning-fast, beautifully designed full-stack movie discover
 
 📧 OTP Password Recovery: Integrated with the Brevo HTTP API to send secure 6-digit email verification codes for forgotten passwords.
 
-💬 Instagram-Style Comments: Features live star ratings, reply tagging, and 3-dot context menus (⋮) for instant comment deletion.
+💬 Instagram-Style Comments: Features live star ratings, reply tagging, and 3-dot context menus (⋮) for instant comment deletion and reporting.
 
 🛡️ Alias Shield (Dynamic Sync): If a user changes their username, the database automatically intercepts and cascades the update so all their past comments instantly reflect their new name and avatar.
 
@@ -50,8 +50,8 @@ Follow these exact steps to deploy the Nexus Movies architecture on your local m
 
 1. Clone the repository and navigate to the directory:
 
-git clone https://github.com/yourusername/nexus-movies.git
-cd nexus-movies
+git clone https://github.com/DHILIP201/Movie-Backend-Files.git
+cd Movie-Backend-Files
 
 
 2. Install Backend Dependencies:
@@ -92,4 +92,4 @@ Reviews: Stores media IDs, content, and ratings, mapping dynamically to user IDs
 
 UserWishlists: Stores arrays of saved media objects tied securely to a specific user session.
 
-Built with precision by Mutex.
+Engineered with precision by Mutex.
