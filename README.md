@@ -1,5 +1,7 @@
 🎬 Nexus Movies: Advanced Full-Stack Discovery Platform
 
+🌐 Live Production Environment: https://nexus-movie.abrdns.com/
+
 A Flagship Product Developed by Mutex — Premium Movie Discovery & Community Experience
 
 Nexus Movies is a lightning-fast, beautifully designed full-stack movie discovery platform, engineered as a core product by my software company, Mutex. Powered by the TMDB API, it features real-time community reviews, customizable public profiles, secure wishlists, and seamless Google OAuth integration. It is built to deliver rich media details and real-time streaming availability without compromising on speed, scalability, or security.
