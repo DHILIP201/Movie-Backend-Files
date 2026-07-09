@@ -98,7 +98,6 @@ A visual breakdown of the full-stack data flow for the Nexus Movies platform.
 📊 Visual Workflow Diagram
 
 (Note: GitHub will automatically render the code block below into a visual flowchart!)
-
 flowchart LR
     %% Defining aesthetic styles
     classDef frontend fill:#e6f3ff,stroke:#0b57d0,stroke-width:2px,color:#041e49,font-weight:bold
@@ -106,7 +105,6 @@ flowchart LR
     classDef db fill:#e0f2f1,stroke:#00695c,stroke-width:2px,color:#004d40,font-weight:bold
     classDef userbox fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#bf360c,font-weight:bold
     classDef apibox fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,color:#4a148c,font-weight:bold
-    classDef reqres fill:#fff,stroke:#424242,stroke-width:1px,stroke-dasharray: 5 5
 
     subgraph USER_ENV ["1. USER ENVIRONMENT"]
         direction TB
@@ -121,9 +119,9 @@ flowchart LR
 
     subgraph BACKEND ["4. BACKEND (SERVER)"]
         direction TB
-        Node[Node.js + Express.js] --> Middleware[Auth Middleware (JWT)]
+        Node[Node.js + Express.js] --> Middleware[Auth Middleware JWT]
         Middleware --> Routes[API Routers]
-        Routes --> Controller[Business Logic / Controllers]
+        Routes --> Controller[Business Logic]
         Controller --> Mongoose[Mongoose Schemas]
     end
 
@@ -133,22 +131,22 @@ flowchart LR
 
     subgraph EXTERNAL ["EXTERNAL APIs"]
         direction TB
-        TMDB(TMDB API - Media Data)
-        Brevo(Brevo API - OTP Emails)
-        Google(Google OAuth 2.0)
+        TMDB(TMDB API)
+        Brevo(Brevo API)
+        Google(Google OAuth)
     end
 
     %% Network Flow
-    Browser -- "User Action\n(Click/Search)" --> UI
+    Browser -- "User Action" --> UI
     UI -. "UI Update" .- Browser
 
-    Fetch == "3. API REQUEST\n(GET, POST, PUT, DELETE)" ==> Middleware
-    Middleware -. "7. API RESPONSE\n(JSON / Status Codes)" .-> Fetch
+    Fetch == "3. API REQUEST" ==> Middleware
+    Middleware -. "7. API RESPONSE" .-> Fetch
 
-    Mongoose == "5. DB OPERATIONS\n(CRUD Validation)" ==> Mongo
+    Mongoose == "5. DB OPERATIONS" ==> Mongo
     Mongo -. "Data Retrieval" .-> Mongoose
 
-    Controller -- "Secure Server Fetch" --> TMDB
+    Controller -- "Secure Fetch" --> TMDB
     Controller -- "Trigger SMTP" --> Brevo
     Middleware -- "Token Verification" --> Google
 
@@ -191,9 +189,3 @@ The Node.js backend packages the final data (movies, user profiles, or success m
 
 8️⃣ UI Update:
 The Vanilla JS receives the JSON response and dynamically updates the HTML Document Object Model (DOM)—rendering the movie cards, displaying the 3-dot comment menus, or flashing a success toast notification!
-
-Reviews: Stores media IDs, content, and ratings, mapping dynamically to user IDs for secure deletion.
-
-UserWishlists: Stores arrays of saved media objects tied securely to a specific user session.
-
-Engineered with precision by Mutex.
